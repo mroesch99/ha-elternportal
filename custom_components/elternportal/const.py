@@ -39,6 +39,9 @@ DEFAULT_SECTION_REGISTERS: bool = False
 DEFAULT_SECTION_SICKNOTES: bool = False
 DEFAULT_SECTION_SUBSTITUTIONS: bool = False
 
+CONF_SUBSTITUTION_TEACHER_NAMES: str = "substitution_teacher_names"
+DEFAULT_SUBSTITUTION_TEACHER_NAMES: bool = False
+
 SENSOR_APPOINTMENT: str = "appointment"
 SENSOR_BLACKBOARD: str = "blackboard"
 SENSOR_LESSON: str = "lesson"

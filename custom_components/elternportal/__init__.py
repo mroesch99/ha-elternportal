@@ -7,7 +7,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from pyelternportal import ElternPortalAPI, VERSION
+from pyelternportal import VERSION
 from pyelternportal.const import (
     CONF_APPOINTMENT_CALENDAR,
     CONF_APPOINTMENT_THRESHOLD_END,
@@ -64,7 +64,11 @@ from .const import (
     LOGGER,
     PLATFORMS,
     CONF_SCHOOL,
+    CONF_SUBSTITUTION_TEACHER_NAMES,
+    DEFAULT_SUBSTITUTION_TEACHER_NAMES,
 )
+
+from .api import ElternPortalAPIExt
 
 from .coordinator import ElternPortalCoordinator
 
@@ -83,7 +87,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize the API and coordinator.
     LOGGER.debug("The version of pyelternportal is %s", VERSION)
     session = async_get_clientsession(hass)
-    api = ElternPortalAPI(session)
+    api = ElternPortalAPIExt(session)
     config = {
         "school": entry.data.get(CONF_SCHOOL),
         "username": entry.data.get(CONF_USERNAME),
@@ -157,6 +161,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     }
     api.set_option_data(options)
+    api.substitution_teacher_names = entry.options.get(
+        CONF_SUBSTITUTION_TEACHER_NAMES, DEFAULT_SUBSTITUTION_TEACHER_NAMES
+    )
 
     try:
         await api.async_validate_config()
