@@ -11,7 +11,7 @@ from urllib import parse
 import aiohttp
 import bs4
 
-from pyelternportal import ElternPortalAPI
+from pyelternportal import CannotConnectException, ElternPortalAPI
 from pyelternportal.substitution import Substitution
 
 from .const import LOGGER
@@ -82,6 +82,35 @@ class ElternPortalAPIExt(ElternPortalAPI):
         self.substitution_teacher_names: bool = False
         self.teachers: dict[str, str] = {}
         self._teachers_loaded: bool = False
+
+    def clear_cookies(self) -> None:
+        """Drop all cookies of the (dedicated) session."""
+        cookie_jar = getattr(self._session, "cookie_jar", None)
+        if cookie_jar is not None:
+            cookie_jar.clear()
+
+    async def async_base_online(self) -> None:
+        """Start every login with a clean session.
+
+        A stale session cookie (e.g. after a failed logout) makes the portal
+        return the logged-in start page without a login form (no csrf token).
+        """
+        self.clear_cookies()
+        try:
+            await super().async_base_online()
+        except CannotConnectException as ex:
+            if "csrf" not in str(ex):
+                raise
+            LOGGER.debug("No csrf token found, logout and retry once")
+            try:
+                async with self._session.get(
+                    parse.urljoin(self.base_url, "/logout")
+                ) as response:
+                    await response.read()
+            except aiohttp.ClientError as logout_ex:
+                LOGGER.debug("Logout before retry failed: %s", logout_ex)
+            self.clear_cookies()
+            await super().async_base_online()
 
     async def async_update_online(self) -> None:
         """Reload the teacher list once per update cycle."""

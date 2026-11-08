@@ -5,7 +5,9 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import aiohttp
+
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from pyelternportal import VERSION
 from pyelternportal.const import (
@@ -86,7 +88,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize the API and coordinator.
     LOGGER.debug("The version of pyelternportal is %s", VERSION)
-    session = async_get_clientsession(hass)
+    # Dedicated session with its own cookie jar (detached on unload/stop).
+    session = async_create_clientsession(hass, cookie_jar=aiohttp.CookieJar())
     api = ElternPortalAPIExt(session)
     config = {
         "school": entry.data.get(CONF_SCHOOL),
@@ -178,7 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    entry.add_update_listener(async_reload_entry)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     LOGGER.debug("Setup of the config entry ended")
     return True
 
@@ -198,6 +201,5 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry."""
 
     LOGGER.debug("Reload of the config entry %s started", entry.entry_id)
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    await hass.config_entries.async_reload(entry.entry_id)
     LOGGER.debug("Reload of the config entry ended")
