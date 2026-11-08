@@ -126,10 +126,12 @@
       "substitution": {
         "title": "Substitution schedule options",
         "data": {
-          "substitution_threshold": "Date (threshold)"
+          "substitution_threshold": "Date (threshold)",
+          "substitution_teacher_names": "Resolve teacher abbreviations to names"
         },
         "data_description": {
-          "substitution_threshold": "Only entries from the parent portal whose date is greater than or equal to the day in ? days are displayed in the sensor for the substitution schedule."
+          "substitution_threshold": "Only entries from the parent portal whose date is greater than or equal to the day in ? days are displayed in the sensor for the substitution schedule.",
+          "substitution_teacher_names": "Loads the teacher abbreviations from the school information page and adds the fields original_teacher_name and substitute_teacher_name."
         }
       }
     }

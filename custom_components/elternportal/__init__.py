@@ -66,6 +66,8 @@ from .const import (
     LOGGER,
     PLATFORMS,
     CONF_SCHOOL,
+    CONF_SUBSTITUTION_TEACHER_NAMES,
+    DEFAULT_SUBSTITUTION_TEACHER_NAMES,
 )
 
 from .api import ElternPortalAPIExt
@@ -162,6 +164,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ),
     }
     api.set_option_data(options)
+    api.substitution_teacher_names = entry.options.get(
+        CONF_SUBSTITUTION_TEACHER_NAMES, DEFAULT_SUBSTITUTION_TEACHER_NAMES
+    )
 
     try:
         await api.async_validate_config()
