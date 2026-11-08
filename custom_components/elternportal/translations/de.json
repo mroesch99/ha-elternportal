@@ -126,10 +126,12 @@
       "substitution": {
         "title": "Vertretungsplan Optionen",
         "data": {
-          "substitution_threshold": "Datum (Anzeigegrenze)"
+          "substitution_threshold": "Datum (Anzeigegrenze)",
+          "substitution_teacher_names": "Lehrkräfte-Kürzel in Namen auflösen"
         },
         "data_description": {
-          "substitution_threshold": "Es werden nur Einträge aus dem Eltern-Portal im Sensor für den Vertretungsplan angezeigt, deren Datum größer oder gleich dem Tag in ? Tagen ist."
+          "substitution_threshold": "Es werden nur Einträge aus dem Eltern-Portal im Sensor für den Vertretungsplan angezeigt, deren Datum größer oder gleich dem Tag in ? Tagen ist.",
+          "substitution_teacher_names": "Lädt die Stundenplankürzel der Lehrkräfte aus „Wer macht Was“ (Schulinformationen) und ergänzt die Felder original_teacher_name und substitute_teacher_name."
         }
       }
     }

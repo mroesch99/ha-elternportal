@@ -76,6 +76,8 @@ from .const import (
     DEFAULT_SECTION_REGISTERS,
     DEFAULT_SECTION_SICKNOTES,
     DEFAULT_SECTION_SUBSTITUTIONS,
+    CONF_SUBSTITUTION_TEACHER_NAMES,
+    DEFAULT_SUBSTITUTION_TEACHER_NAMES,
     DOMAIN,
     LOGGER,
 )
@@ -561,6 +563,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     DEFAULT_SUBSTITUTION_THRESHOLD,
                 ),
             ): int,
+            vol.Optional(
+                CONF_SUBSTITUTION_TEACHER_NAMES,
+                default=self._config_entry.options.get(
+                    CONF_SUBSTITUTION_TEACHER_NAMES,
+                    DEFAULT_SUBSTITUTION_TEACHER_NAMES,
+                ),
+            ): bool,
         }
 
         return self.async_show_form(
@@ -608,6 +617,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SICKNOTE_THRESHOLD: self.sicknote_input.get(CONF_SICKNOTE_THRESHOLD),
             CONF_SUBSTITUTION_THRESHOLD: self.substitution_input.get(
                 CONF_SUBSTITUTION_THRESHOLD
+            ),
+            CONF_SUBSTITUTION_TEACHER_NAMES: self.substitution_input.get(
+                CONF_SUBSTITUTION_TEACHER_NAMES
             ),
         }
         return self.async_create_entry(title="", data=option_data)
