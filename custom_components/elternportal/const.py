@@ -42,6 +42,9 @@ DEFAULT_SECTION_SUBSTITUTIONS: bool = False
 CONF_SUBSTITUTION_TEACHER_NAMES: str = "substitution_teacher_names"
 DEFAULT_SUBSTITUTION_TEACHER_NAMES: bool = False
 
+CONF_SUBSTITUTION_SUBJECT_NAMES: str = "substitution_subject_names"
+DEFAULT_SUBSTITUTION_SUBJECT_NAMES: str = ""
+
 SENSOR_APPOINTMENT: str = "appointment"
 SENSOR_BLACKBOARD: str = "blackboard"
 SENSOR_LESSON: str = "lesson"

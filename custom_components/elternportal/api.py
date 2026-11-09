@@ -12,6 +12,7 @@ import aiohttp
 import bs4
 
 from pyelternportal import CannotConnectException, ElternPortalAPI
+from pyelternportal.const import SCHOOL_SUBJECTS
 from pyelternportal.substitution import Substitution
 
 from .const import LOGGER
@@ -21,14 +22,32 @@ TEACHER_URL_PATH: str = "/service/schulinformationen"
 _RE_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _RE_TAG = re.compile(r"<[^>]+>")
 _RE_SPACE = re.compile(r"\s+")
+_RE_INTENSIVE = re.compile(r"^i\d*$")
+
+# Common (Bavarian) subject abbreviations missing in pyelternportal
+EXTRA_SUBJECTS: dict[str, str] = {
+    "NuT": "Natur und Technik",
+    "Sm": "Sport",
+    "Sw": "Sport",
+}
+
+# Suffix after "_" (e.g. NuT_P, M_i1)
+SUBJECT_SUFFIXES: dict[str, str] = {
+    "B": "Biologie",
+    "I": "Informatik",
+    "P": "Physik",
+    "Ü": "Übung",
+}
 
 
 @dataclass
 class SubstitutionExt(Substitution):
-    """Substitution with resolved teacher names."""
+    """Substitution with resolved teacher and subject names."""
 
     original_teacher_name: str = ""
     substitute_teacher_name: str = ""
+    subject_old_name: str = ""
+    subject_new_name: str = ""
 
 
 def clean_html_text(text: str | None) -> str | None:
@@ -74,12 +93,64 @@ def resolve_teachers(text: str | None, teachers: dict[str, str]) -> str:
     return re.sub(pattern, lambda m: teachers[m.group(1)], text)
 
 
+def parse_subject_mapping(text: str | None) -> dict[str, str]:
+    """Parse user defined subjects, one "abbreviation=name" per line."""
+    subjects: dict[str, str] = {}
+    for line in (text or "").replace(";", "\n").splitlines():
+        key, sep, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if sep and key and value:
+            subjects[key] = value
+    return subjects
+
+
+def build_subjects(custom: dict[str, str] | None = None) -> dict[str, str]:
+    """Default subjects (pyelternportal + extras), overridden by custom ones."""
+    subjects = {s["Short"]: s["Name"] for s in SCHOOL_SUBJECTS}
+    subjects.update(EXTRA_SUBJECTS)
+    subjects.update(custom or {})
+    return subjects
+
+
+def _lookup(key: str, subjects: dict[str, str]) -> str | None:
+    if key in subjects:
+        return subjects[key]
+    lower = key.lower()
+    for k, v in subjects.items():
+        if k.lower() == lower:
+            return v
+    return None
+
+
+def resolve_subject(text: str | None, subjects: dict[str, str]) -> str:
+    """Replace a subject abbreviation by the full name (fallback: unchanged)."""
+    if not text:
+        return text or ""
+    key = text.strip()
+    name = _lookup(key, subjects)
+    if name is not None:
+        return name
+    base, sep, suffix = key.partition("_")
+    if not sep:
+        return text
+    base_name = _lookup(base, subjects)
+    if base_name is None:
+        return text
+    if _RE_INTENSIVE.match(suffix):
+        return f"{base_name} Intensivierung"
+    suffix_name = _lookup(suffix, SUBJECT_SUFFIXES)
+    if suffix_name is not None:
+        return f"{base_name} – {suffix_name}"
+    return text
+
+
 class ElternPortalAPIExt(ElternPortalAPI):
     """ElternPortalAPI with teacher names and cleaned appointment titles."""
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         super().__init__(session)
         self.substitution_teacher_names: bool = False
+        self.subjects: dict[str, str] = build_subjects()
         self.teachers: dict[str, str] = {}
         self._teachers_loaded: bool = False
 
@@ -146,21 +217,31 @@ class ElternPortalAPIExt(ElternPortalAPI):
         else:
             LOGGER.warning("No teacher abbreviations found on %s", url)
 
+    def set_custom_subjects(self, text: str | None) -> None:
+        """Set user defined subject abbreviations ("abbreviation=name" lines)."""
+        self.subjects = build_subjects(parse_subject_mapping(text))
+
     async def async_substitution_online(self) -> None:
-        """Substitution plan with optional resolved teacher names."""
+        """Substitution plan with resolved subject and optional teacher names."""
         if self.substitution_teacher_names and not self._teachers_loaded:
             await self.async_teacher_online()
         await super().async_substitution_online()
-        if self.substitution_teacher_names:
-            self._student.substitutions = [
-                SubstitutionExt(
-                    **asdict(s),
-                    original_teacher_name=resolve_teachers(
-                        s.original_teacher, self.teachers
-                    ),
-                    substitute_teacher_name=resolve_teachers(
-                        s.substitute_teacher, self.teachers
-                    ),
-                )
-                for s in self._student.substitutions
-            ]
+        resolve = self.substitution_teacher_names
+        self._student.substitutions = [
+            SubstitutionExt(
+                **{
+                    k: v
+                    for k, v in asdict(s).items()
+                    if k in Substitution.__dataclass_fields__
+                },
+                original_teacher_name=(
+                    resolve_teachers(s.original_teacher, self.teachers) if resolve else ""
+                ),
+                substitute_teacher_name=(
+                    resolve_teachers(s.substitute_teacher, self.teachers) if resolve else ""
+                ),
+                subject_old_name=resolve_subject(s.subject_old, self.subjects),
+                subject_new_name=resolve_subject(s.subject_new, self.subjects),
+            )
+            for s in self._student.substitutions
+        ]

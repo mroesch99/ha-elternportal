@@ -127,11 +127,13 @@
         "title": "Vertretungsplan Optionen",
         "data": {
           "substitution_threshold": "Datum (Anzeigegrenze)",
-          "substitution_teacher_names": "Lehrkräfte-Kürzel in Namen auflösen"
+          "substitution_teacher_names": "Lehrkräfte-Kürzel in Namen auflösen",
+          "substitution_subject_names": "Eigene Fach-Kürzel"
         },
         "data_description": {
           "substitution_threshold": "Es werden nur Einträge aus dem Eltern-Portal im Sensor für den Vertretungsplan angezeigt, deren Datum größer oder gleich dem Tag in ? Tagen ist.",
-          "substitution_teacher_names": "Lädt die Stundenplankürzel der Lehrkräfte aus „Wer macht Was“ (Schulinformationen) und ergänzt die Felder original_teacher_name und substitute_teacher_name."
+          "substitution_teacher_names": "Lädt die Stundenplankürzel der Lehrkräfte aus „Wer macht Was“ (Schulinformationen) und ergänzt die Felder original_teacher_name und substitute_teacher_name.",
+          "substitution_subject_names": "Ein Eintrag pro Zeile im Format Kürzel=Name, z. B. Skd=Sport. Ergänzt bzw. überschreibt die eingebaute Liste. Die Felder subject_old_name und subject_new_name enthalten die vollen Fachnamen."
         }
       }
     }
