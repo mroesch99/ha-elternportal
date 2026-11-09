@@ -55,7 +55,14 @@ from pyelternportal.const import (
     DEFAULT_SUBSTITUTION_THRESHOLD,
 )
 
-from .api import ElternPortalAPIExt, build_choice, find_alternatives
+from .api import (
+    ElternPortalAPIExt,
+    build_choice,
+    build_subjects,
+    find_alternatives,
+    parse_subject_mapping,
+    resolve_subject,
+)
 from .const import (
     CONF_SCHOOL,
     CONF_SECTION_APPOINTMENTS,
@@ -597,13 +604,30 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="substitution", data_schema=vol.Schema(data_schema), errors=errors
         )
 
-    def _students_with_alternatives(self) -> list[tuple[Any, list[list[str]]]]:
-        """Students of the running entry and their subject combinations."""
-        coordinator = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id)
-        if coordinator is None:
+    async def _async_students_with_alternatives(
+        self,
+    ) -> list[tuple[Any, list[list[str]]]]:
+        """Load the timetables (own session) and find subject combinations."""
+        session = async_create_clientsession(
+            self.hass, auto_cleanup=False, cookie_jar=aiohttp.CookieJar()
+        )
+        try:
+            api = ElternPortalAPIExt(session)
+            api.set_config_data(
+                {
+                    "school": self._config_entry.data.get(CONF_SCHOOL),
+                    "username": self._config_entry.data.get(CONF_USERNAME),
+                    "password": self._config_entry.data.get(CONF_PASSWORD),
+                }
+            )
+            await api.async_load_lessons()
+        except Exception as ex:  # pylint: disable=broad-except
+            LOGGER.warning("Loading the timetables for the subject choice failed: %s", ex)
             return []
+        finally:
+            session.detach()
         result = []
-        for student in coordinator.api.students:
+        for student in api.students:
             combinations = find_alternatives(student.lessons)
             if combinations:
                 result.append((student, combinations))
@@ -614,7 +638,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Choose the subject of combinations like F/L per student."""
 
-        if not self.section_input.get(CONF_SECTION_LESSONS):
+        if not (
+            self.section_input.get(CONF_SECTION_LESSONS)
+            or self.section_input.get(CONF_SECTION_SUBSTITUTIONS)
+        ):
             return await self.async_step_finish()
 
         if user_input is not None:
@@ -624,11 +651,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             return await self.async_step_finish()
 
-        students = self._students_with_alternatives()
+        students = await self._async_students_with_alternatives()
         if not students:
             return await self.async_step_finish()
 
-        api = self.hass.data[DOMAIN][self._config_entry.entry_id].api
+        subjects = build_subjects(
+            parse_subject_mapping(
+                self.substitution_input.get(
+                    CONF_SUBSTITUTION_SUBJECT_NAMES,
+                    self._config_entry.options.get(CONF_SUBSTITUTION_SUBJECT_NAMES),
+                )
+            )
+        )
         data_schema = {}
         self._choice_fields = {}
         for student, combinations in students:
@@ -647,7 +681,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         options.append(
                             selector.SelectOptionDict(
                                 value=part,
-                                label=f"{api.subjects_name(part)} ({part}) – "
+                                label=f"{resolve_subject(part, subjects)} ({part}) – "
                                 + "/".join(parts),
                             )
                         )
@@ -673,6 +707,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_finish(self) -> FlowResult:
         """Manage the option flow finish."""
+
+        # A subject choice keeps the timetable in sync (new combinations,
+        # rooms of the chosen subject), so the timetable is enabled for good.
+        if any(c.get("chosen") for c in self.subject_choices.values()):
+            self.section_input[CONF_SECTION_LESSONS] = True
 
         option_data = {
             CONF_APPOINTMENT_CALENDAR: self.appointment_input.get(

@@ -138,7 +138,7 @@
       },
       "subjects": {
         "title": "Subject choice",
-        "description": "Combinations like F/L or K/Ev/Eth from the timetable. Select the subjects each child takes: the timetable then shows only this subject and its room, and the substitution plan hides substitutions of the other alternatives. Without a selection everything is shown."
+        "description": "The timetable was loaded automatically for this step. Combinations like F/L or K/Ev/Eth: select the subjects each child takes. The timetable then shows only this subject and its room, and the substitution plan hides substitutions of the other alternatives. Without a selection everything is shown. As soon as a subject is chosen, the timetable section is enabled permanently and synced on every update."
       }
     }
   }

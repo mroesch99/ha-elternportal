@@ -307,6 +307,25 @@ class ElternPortalAPIExt(ElternPortalAPI):
         else:
             LOGGER.warning("No teacher abbreviations found on %s", url)
 
+    async def async_load_lessons(self) -> None:
+        """Load only the timetables of all students (used by the options flow)."""
+        if self._demo:
+            await self.async_base_demo()
+            await self.async_login_demo()
+            for self._student in self.students:
+                await self.async_lesson_demo()
+            self._student = None
+            return
+        await self.async_base_online()
+        await self.async_login_online()
+        try:
+            for self._student in self.students:
+                await self.async_set_child_online()
+                await self.async_lesson_online()
+        finally:
+            self._student = None
+            await self.async_logout_online()
+
     def subjects_name(self, abbreviation: str) -> str:
         """Full subject name of an abbreviation."""
         return resolve_subject(abbreviation, self.subjects)
