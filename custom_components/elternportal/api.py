@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import date
 import html as html_lib
 import re
 from typing import Any
@@ -51,6 +52,30 @@ class SubstitutionExt(Substitution):
     substitute_teacher_name: str = ""
     subject_old_name: str = ""
     subject_new_name: str = ""
+    weekday: str = ""
+
+
+WEEKDAYS: list[str] = [
+    "Montag",
+    "Dienstag",
+    "Mittwoch",
+    "Donnerstag",
+    "Freitag",
+    "Samstag",
+    "Sonntag",
+]
+
+
+def weekday_name(value: Any) -> str:
+    """German weekday of a date (date, datetime or ISO string)."""
+    if isinstance(value, str):
+        try:
+            value = date.fromisoformat(value[:10])
+        except ValueError:
+            return ""
+    if isinstance(value, date):
+        return WEEKDAYS[value.weekday()]
+    return ""
 
 
 @dataclass
@@ -368,6 +393,7 @@ class ElternPortalAPIExt(ElternPortalAPI):
                 ),
                 subject_old_name=resolve_subject(s.subject_old, self.subjects),
                 subject_new_name=resolve_subject(s.subject_new, self.subjects),
+                weekday=weekday_name(s.date),
             )
             for s in self._student.substitutions
         ]
