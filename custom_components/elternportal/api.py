@@ -13,6 +13,7 @@ import bs4
 
 from pyelternportal import CannotConnectException, ElternPortalAPI
 from pyelternportal.const import SCHOOL_SUBJECTS
+from pyelternportal.lesson import Lesson
 from pyelternportal.substitution import Substitution
 
 from .const import LOGGER
@@ -26,9 +27,11 @@ _RE_INTENSIVE = re.compile(r"^i\d*$")
 
 # Common (Bavarian) subject abbreviations missing in pyelternportal
 EXTRA_SUBJECTS: dict[str, str] = {
+    "Ev": "Religion Evangelisch",
+    "K": "Religion Katholisch",
     "NuT": "Natur und Technik",
-    "Sm": "Sport",
-    "Sw": "Sport",
+    "Sm": "Sport männlich",
+    "Sw": "Sport weiblich",
 }
 
 # Suffix after "_" (e.g. NuT_P, M_i1)
@@ -48,6 +51,14 @@ class SubstitutionExt(Substitution):
     substitute_teacher_name: str = ""
     subject_old_name: str = ""
     subject_new_name: str = ""
+
+
+@dataclass
+class LessonExt(Lesson):
+    """Lesson with resolved subject name and the room of the chosen subject."""
+
+    subject_name: str = ""
+    room_selected: str = ""
 
 
 def clean_html_text(text: str | None) -> str | None:
@@ -144,6 +155,84 @@ def resolve_subject(text: str | None, subjects: dict[str, str]) -> str:
     return text
 
 
+def split_alternatives(subject: str | None) -> list[str]:
+    """Split "F/L" into unique alternatives ["F", "L"] (keeps the order)."""
+    parts: list[str] = []
+    for part in (subject or "").split("/"):
+        part = part.strip()
+        if part and part not in parts:
+            parts.append(part)
+    return parts
+
+
+def find_alternatives(lessons: list[Lesson]) -> list[list[str]]:
+    """Distinct subject combinations ("F/L", "K/Ev/Eth") of a timetable."""
+    seen: set[frozenset[str]] = set()
+    result: list[list[str]] = []
+    for lesson in lessons:
+        parts = split_alternatives(lesson.subject)
+        key = frozenset(parts)
+        if len(parts) > 1 and key not in seen:
+            seen.add(key)
+            result.append(parts)
+    return result
+
+
+def build_choice(
+    combinations: list[list[str]], chosen: list[str]
+) -> dict[str, list[str]]:
+    """Excluded = alternatives of a combination in which another one is chosen."""
+    chosen_set = set(chosen)
+    excluded: set[str] = set()
+    for parts in combinations:
+        if chosen_set.intersection(parts):
+            excluded.update(p for p in parts if p not in chosen_set)
+    return {"chosen": sorted(chosen_set), "excluded": sorted(excluded)}
+
+
+def resolve_lesson(
+    lesson: Lesson, subjects: dict[str, str], chosen: list[str]
+) -> LessonExt:
+    """Apply subject names and the subject choice to a lesson."""
+    raw_subjects = (lesson.subject or "").split("/")
+    raw_rooms = (lesson.room or "").split("/")
+    pairs: list[tuple[str, str]] = []
+    for index, subject in enumerate(raw_subjects):
+        subject = subject.strip()
+        room = raw_rooms[index].strip() if index < len(raw_rooms) else ""
+        if subject:
+            pairs.append((subject, room))
+    selected = [p for p in pairs if p[0] in chosen] or pairs
+    names: list[str] = []
+    rooms: list[str] = []
+    for subject, room in selected:
+        name = resolve_subject(subject, subjects)
+        if name not in names:
+            names.append(name)
+        if room and room not in rooms:
+            rooms.append(room)
+    return LessonExt(
+        **{k: v for k, v in asdict(lesson).items() if k in Lesson.__dataclass_fields__},
+        subject_name="/".join(names),
+        room_selected="/".join(rooms),
+    )
+
+
+def is_relevant(substitution: Substitution, excluded: list[str]) -> bool:
+    """False if all subjects of a substitution are deselected alternatives."""
+    if not excluded:
+        return True
+    excluded_lower = {e.lower() for e in excluded}
+    subjects = [
+        s.strip()
+        for s in (substitution.subject_old, substitution.subject_new)
+        if s and s.strip()
+    ]
+    if not subjects:
+        return True
+    return not all(s.lower() in excluded_lower for s in subjects)
+
+
 class ElternPortalAPIExt(ElternPortalAPI):
     """ElternPortalAPI with teacher names and cleaned appointment titles."""
 
@@ -151,6 +240,7 @@ class ElternPortalAPIExt(ElternPortalAPI):
         super().__init__(session)
         self.substitution_teacher_names: bool = False
         self.subjects: dict[str, str] = build_subjects()
+        self.subject_choices: dict[str, dict[str, list[str]]] = {}
         self.teachers: dict[str, str] = {}
         self._teachers_loaded: bool = False
 
@@ -217,9 +307,26 @@ class ElternPortalAPIExt(ElternPortalAPI):
         else:
             LOGGER.warning("No teacher abbreviations found on %s", url)
 
+    def subjects_name(self, abbreviation: str) -> str:
+        """Full subject name of an abbreviation."""
+        return resolve_subject(abbreviation, self.subjects)
+
     def set_custom_subjects(self, text: str | None) -> None:
         """Set user defined subject abbreviations ("abbreviation=name" lines)."""
         self.subjects = build_subjects(parse_subject_mapping(text))
+
+    def _choice(self) -> dict[str, list[str]]:
+        student_id = getattr(self._student, "student_id", None)
+        return self.subject_choices.get(str(student_id), {}) if student_id else {}
+
+    async def async_lesson_online(self) -> None:
+        """Timetable with subject names and the chosen alternatives."""
+        await super().async_lesson_online()
+        chosen = self._choice().get("chosen", [])
+        self._student.lessons = [
+            resolve_lesson(lesson, self.subjects, chosen)
+            for lesson in self._student.lessons
+        ]
 
     async def async_substitution_online(self) -> None:
         """Substitution plan with resolved subject and optional teacher names."""
@@ -245,3 +352,13 @@ class ElternPortalAPIExt(ElternPortalAPI):
             )
             for s in self._student.substitutions
         ]
+        excluded = self._choice().get("excluded", [])
+        if excluded:
+            before = len(self._student.substitutions)
+            self._student.substitutions = [
+                s for s in self._student.substitutions if is_relevant(s, excluded)
+            ]
+            LOGGER.debug(
+                "substitution.filtered=%s",
+                before - len(self._student.substitutions),
+            )

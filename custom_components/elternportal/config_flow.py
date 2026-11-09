@@ -55,7 +55,7 @@ from pyelternportal.const import (
     DEFAULT_SUBSTITUTION_THRESHOLD,
 )
 
-from .api import ElternPortalAPIExt
+from .api import ElternPortalAPIExt, build_choice, find_alternatives
 from .const import (
     CONF_SCHOOL,
     CONF_SECTION_APPOINTMENTS,
@@ -80,6 +80,7 @@ from .const import (
     DEFAULT_SUBSTITUTION_TEACHER_NAMES,
     CONF_SUBSTITUTION_SUBJECT_NAMES,
     DEFAULT_SUBSTITUTION_SUBJECT_NAMES,
+    CONF_SUBJECT_CHOICES,
     DOMAIN,
     LOGGER,
 )
@@ -188,6 +189,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self.register_input: dict[str, Any] = {}
         self.sicknote_input: dict[str, Any] = {}
         self.substitution_input: dict[str, Any] = {}
+        self.subject_choices: dict[str, Any] = dict(
+            config_entry.options.get(CONF_SUBJECT_CHOICES) or {}
+        )
+        # field name -> (student_id, combinations)
+        self._choice_fields: dict[str, tuple[str, list[list[str]]]] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -549,13 +555,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         if not self.section_input[CONF_SECTION_SUBSTITUTIONS]:
             self.substitution_input = {}
-            return await self.async_step_finish()
+            return await self.async_step_subjects()
 
         errors = {}
         if user_input is not None:
             if not errors:
                 self.substitution_input = user_input
-                return await self.async_step_finish()
+                return await self.async_step_subjects()
 
         data_schema = {
             vol.Optional(
@@ -589,6 +595,80 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="substitution", data_schema=vol.Schema(data_schema), errors=errors
+        )
+
+    def _students_with_alternatives(self) -> list[tuple[Any, list[list[str]]]]:
+        """Students of the running entry and their subject combinations."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id)
+        if coordinator is None:
+            return []
+        result = []
+        for student in coordinator.api.students:
+            combinations = find_alternatives(student.lessons)
+            if combinations:
+                result.append((student, combinations))
+        return result
+
+    async def async_step_subjects(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Choose the subject of combinations like F/L per student."""
+
+        if not self.section_input.get(CONF_SECTION_LESSONS):
+            return await self.async_step_finish()
+
+        if user_input is not None:
+            for field, (student_id, combinations) in self._choice_fields.items():
+                self.subject_choices[student_id] = build_choice(
+                    combinations, user_input.get(field, [])
+                )
+            return await self.async_step_finish()
+
+        students = self._students_with_alternatives()
+        if not students:
+            return await self.async_step_finish()
+
+        api = self.hass.data[DOMAIN][self._config_entry.entry_id].api
+        data_schema = {}
+        self._choice_fields = {}
+        for student, combinations in students:
+            student_id = str(student.student_id)
+            field = f"{student.firstname} ({student.classname or student_id})"
+            if field in self._choice_fields:
+                field = f"{field} {student_id}"
+            self._choice_fields[field] = (student_id, combinations)
+
+            options = []
+            values = []
+            for parts in combinations:
+                for part in parts:
+                    if part not in values:
+                        values.append(part)
+                        options.append(
+                            selector.SelectOptionDict(
+                                value=part,
+                                label=f"{api.subjects_name(part)} ({part}) – "
+                                + "/".join(parts),
+                            )
+                        )
+            previous = self.subject_choices.get(student_id, {}).get("chosen", [])
+            data_schema[
+                vol.Optional(
+                    field,
+                    description={
+                        "suggested_value": [v for v in previous if v in values]
+                    },
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            )
+
+        return self.async_show_form(
+            step_id="subjects", data_schema=vol.Schema(data_schema)
         )
 
     async def async_step_finish(self) -> FlowResult:
@@ -639,5 +719,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             CONF_SUBSTITUTION_SUBJECT_NAMES: self.substitution_input.get(
                 CONF_SUBSTITUTION_SUBJECT_NAMES, DEFAULT_SUBSTITUTION_SUBJECT_NAMES
             ),
+            CONF_SUBJECT_CHOICES: self.subject_choices,
         }
         return self.async_create_entry(title="", data=option_data)

@@ -135,6 +135,10 @@
           "substitution_teacher_names": "Lädt die Stundenplankürzel der Lehrkräfte aus „Wer macht Was“ (Schulinformationen) und ergänzt die Felder original_teacher_name und substitute_teacher_name.",
           "substitution_subject_names": "Ein Eintrag pro Zeile im Format Kürzel=Name, z. B. Skd=Sport. Ergänzt bzw. überschreibt die eingebaute Liste. Die Felder subject_old_name und subject_new_name enthalten die vollen Fachnamen."
         }
+      },
+      "subjects": {
+        "title": "Fächerwahl",
+        "description": "Kombinationen wie F/L oder K/Ev/Eth aus dem Stundenplan. Wähle pro Kind die belegten Fächer: Der Stundenplan zeigt dann nur dieses Fach samt Raum, und der Vertretungsplan blendet Vertretungen für die nicht gewählten Alternativen aus. Ohne Auswahl werden alle angezeigt."
       }
     }
   }

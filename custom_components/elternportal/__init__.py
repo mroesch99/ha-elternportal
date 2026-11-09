@@ -70,6 +70,7 @@ from .const import (
     DEFAULT_SUBSTITUTION_TEACHER_NAMES,
     CONF_SUBSTITUTION_SUBJECT_NAMES,
     DEFAULT_SUBSTITUTION_SUBJECT_NAMES,
+    CONF_SUBJECT_CHOICES,
 )
 
 from .api import ElternPortalAPIExt
@@ -169,6 +170,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api.substitution_teacher_names = entry.options.get(
         CONF_SUBSTITUTION_TEACHER_NAMES, DEFAULT_SUBSTITUTION_TEACHER_NAMES
     )
+    api.subject_choices = dict(entry.options.get(CONF_SUBJECT_CHOICES) or {})
     api.set_custom_subjects(
         entry.options.get(
             CONF_SUBSTITUTION_SUBJECT_NAMES, DEFAULT_SUBSTITUTION_SUBJECT_NAMES
