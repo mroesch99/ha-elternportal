@@ -183,7 +183,7 @@ content: >
   <tr style="border-bottom:1px solid var(--divider-color);">
   <td style="padding:2px;white-space:nowrap;">{{ item.date }}</td>
   <td style="padding:2px;text-align:center;">{{ item.lesson }}</td>
-  <td style="padding:2px;">{% if item.subject_old %}<s>{{ item.subject_old }}</s> {% endif %}{{ item.subject_new }}</td>
+  <td style="padding:2px;">{% if item.subject_old %}<s>{{ item.subject_old_name or item.subject_old }}</s> {% endif %}{{ item.subject_new_name or item.subject_new }}</td>
   <td style="padding:2px;">{{ item.substitute_teacher }}</td>
   <td style="padding:2px;">{{ item.room }}</td>
   <td style="padding:2px;color:var(--secondary-text-color);">{{ item.info }}</td>

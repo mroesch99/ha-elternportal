@@ -78,6 +78,8 @@ from .const import (
     DEFAULT_SECTION_SUBSTITUTIONS,
     CONF_SUBSTITUTION_TEACHER_NAMES,
     DEFAULT_SUBSTITUTION_TEACHER_NAMES,
+    CONF_SUBSTITUTION_SUBJECT_NAMES,
+    DEFAULT_SUBSTITUTION_SUBJECT_NAMES,
     DOMAIN,
     LOGGER,
 )
@@ -570,6 +572,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     DEFAULT_SUBSTITUTION_TEACHER_NAMES,
                 ),
             ): bool,
+            vol.Optional(
+                CONF_SUBSTITUTION_SUBJECT_NAMES,
+                description={
+                    "suggested_value": self._config_entry.options.get(
+                        CONF_SUBSTITUTION_SUBJECT_NAMES,
+                        DEFAULT_SUBSTITUTION_SUBJECT_NAMES,
+                    )
+                },
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.TEXT, multiline=True
+                )
+            ),
         }
 
         return self.async_show_form(
@@ -620,6 +635,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             CONF_SUBSTITUTION_TEACHER_NAMES: self.substitution_input.get(
                 CONF_SUBSTITUTION_TEACHER_NAMES
+            ),
+            CONF_SUBSTITUTION_SUBJECT_NAMES: self.substitution_input.get(
+                CONF_SUBSTITUTION_SUBJECT_NAMES, DEFAULT_SUBSTITUTION_SUBJECT_NAMES
             ),
         }
         return self.async_create_entry(title="", data=option_data)
