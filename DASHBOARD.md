@@ -172,6 +172,7 @@ ignore_line_breaks: true
 content: >
   <table style="width:100%;border-collapse:collapse;font-size:0.7em;">
   <tr style="background:var(--primary-color);color:white;">
+  <th style="padding:2px;">Weekday</th>
   <th style="padding:2px;">Date</th>
   <th style="padding:2px;">Lesson</th>
   <th style="padding:2px;">Subject</th>
@@ -181,6 +182,7 @@ content: >
   </tr>
   {% for item in state_attr('sensor.elternportal_substitution_n', 'elements') or [] %}
   <tr style="border-bottom:1px solid var(--divider-color);">
+  <td style="padding:2px;">{{ item.weekday }}</td>
   <td style="padding:2px;white-space:nowrap;">{{ item.date }}</td>
   <td style="padding:2px;text-align:center;">{{ item.lesson }}</td>
   <td style="padding:2px;">{% if item.subject_old %}<s>{{ item.subject_old_name or item.subject_old }}</s> {% endif %}{{ item.subject_new_name or item.subject_new }}</td>
