@@ -27,6 +27,7 @@ from .const import (
 
 SUBSTITUTION_URL_PATH: str = "/service/vertretungsplan"
 _RE_DATE = re.compile(r"\d{2}\.\d{2}\.\d{4}")
+_RE_STAND = re.compile(r"Stand:\s*(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})")
 
 TEACHER_URL_PATH: str = "/service/schulinformationen"
 
@@ -267,6 +268,8 @@ def analyze_substitution_html(html: str, parser: str = "html5lib") -> dict[str, 
         "rows": 0,
         "rows_skipped": 0,
         "tables_without_header": 0,
+        "notices": [],
+        "plan_updated": None,
     }
     main = soup.select_one("#asam_content .main_center")
     if main is None:
@@ -274,14 +277,23 @@ def analyze_substitution_html(html: str, parser: str = "html5lib") -> dict[str, 
     result["page_recognized"] = True
     for tag in main.find_all(recursive=False):
         if tag.name == "div" and "list" in tag.get("class", []):
-            if _RE_DATE.search(tag.get_text()):
+            text = tag.get_text(" ", strip=True).replace("\xa0", " ")
+            stand = _RE_STAND.search(text)
+            if stand:
+                result["plan_updated"] = f"{stand.group(1)} {stand.group(2)}"
+            elif _RE_DATE.search(text):
                 result["days"] += 1
         elif tag.name == "table":
             result["tables"] += 1
             head = tag.select_one("tr.vp_plan_head")
             columns = len(head.find_all("td")) if head else 0
             if not columns:
-                result["tables_without_header"] += 1
+                cells = tag.find_all("td")
+                if len(cells) == 1:
+                    # Notice like "Keine Vertretungen für die 5c"
+                    result["notices"].append(cells[0].get_text(" ", strip=True))
+                else:
+                    result["tables_without_header"] += 1
                 continue
             for row in tag.select("tbody tr:not(.vp_plan_head)"):
                 cells = row.find_all("td")
@@ -329,7 +341,11 @@ def substitution_status(
             f"Keine Vertretungen für die gewählten Fächer ({total} ausgeblendet)",
         )
     else:
-        status, message = STATUS_EMPTY, "Keine Vertretungen geplant"
+        notices = list(dict.fromkeys(analysis.get("notices") or []))
+        status, message = (
+            STATUS_EMPTY,
+            "; ".join(notices) if notices else "Keine Vertretungen geplant",
+        )
     return {
         "status": status,
         "message": message,
@@ -339,6 +355,8 @@ def substitution_status(
         "tables": analysis.get("tables", 0),
         "rows": analysis.get("rows", 0),
         "rows_skipped": analysis.get("rows_skipped", 0),
+        "notices": analysis.get("notices", []),
+        "plan_updated": analysis.get("plan_updated"),
         "entries_total": total,
         "entries_relevant": relevant,
     }
