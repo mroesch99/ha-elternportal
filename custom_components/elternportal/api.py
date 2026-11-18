@@ -270,6 +270,7 @@ def analyze_substitution_html(html: str, parser: str = "html5lib") -> dict[str, 
         "tables_without_header": 0,
         "notices": [],
         "plan_updated": None,
+        "day_dates": [],
     }
     main = soup.select_one("#asam_content .main_center")
     if main is None:
@@ -281,8 +282,14 @@ def analyze_substitution_html(html: str, parser: str = "html5lib") -> dict[str, 
             stand = _RE_STAND.search(text)
             if stand:
                 result["plan_updated"] = f"{stand.group(1)} {stand.group(2)}"
-            elif _RE_DATE.search(text):
+            elif match := _RE_DATE.search(text):
                 result["days"] += 1
+                try:
+                    result["day_dates"].append(
+                        datetime.strptime(match.group(0), "%d.%m.%Y").date()
+                    )
+                except ValueError:
+                    pass
         elif tag.name == "table":
             result["tables"] += 1
             head = tag.select_one("tr.vp_plan_head")
@@ -306,15 +313,49 @@ def analyze_substitution_html(html: str, parser: str = "html5lib") -> dict[str, 
     return result
 
 
+WEEKDAYS_SHORT: list[str] = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+def _count_text(count: int) -> str:
+    if count == 0:
+        return "keine"
+    return f"{count} Vertretung" + ("" if count == 1 else "en")
+
+
+def day_summary(
+    day_dates: list[date], relevant_dates: list[date]
+) -> list[dict[str, Any]]:
+    """Substitutions per day of the plan (today and later)."""
+    today = date.today()
+    days = sorted({d for d in day_dates if d >= today} | {
+        d for d in relevant_dates if d >= today
+    })
+    return [
+        {
+            "date": d.isoformat(),
+            "weekday": WEEKDAYS[d.weekday()],
+            "count": relevant_dates.count(d),
+            "text": f"{WEEKDAYS_SHORT[d.weekday()]} {d.day:02d}.{d.month:02d}.: "
+            + _count_text(relevant_dates.count(d)),
+        }
+        for d in days
+    ]
+
+
 def substitution_status(
     http_status: int | None,
     analysis: dict[str, Any] | None,
     total: int,
     relevant: int,
     error: str | None = None,
+    relevant_dates: list[date] | None = None,
 ) -> dict[str, Any]:
     """Status of the substitution plan: ok, empty, warning or error."""
     analysis = analysis or {}
+    days = day_summary(analysis.get("day_dates") or [], relevant_dates or [])
+    summary = " · ".join(d["text"] for d in days)
+    hidden = total - relevant
+    hidden_text = f" ({hidden} für andere Fächer ausgeblendet)" if hidden > 0 else ""
     if error is not None:
         status, message = STATUS_ERROR, f"Abruf fehlgeschlagen: {error}"
     elif http_status != 200:
@@ -325,33 +366,30 @@ def substitution_status(
             "Vertretungsplan-Seite nicht erkannt (Login oder Layout geändert?)",
         )
     elif analysis.get("rows_skipped") or analysis.get("tables_without_header"):
-        status, message = (
-            STATUS_WARNING,
+        status = STATUS_WARNING
+        message = (
             f"{analysis.get('rows_skipped', 0)} Zeilen und "
-            f"{analysis.get('tables_without_header', 0)} Tabellen nicht gelesen",
+            f"{analysis.get('tables_without_header', 0)} Tabellen nicht gelesen"
         )
+        if summary:
+            message += f" – gelesen: {summary}"
     elif relevant > 0:
-        status, message = (
-            STATUS_OK,
-            f"{relevant} Vertretung" + ("" if relevant == 1 else "en"),
-        )
-    elif total > 0:
-        status, message = (
-            STATUS_EMPTY,
-            f"Keine Vertretungen für die gewählten Fächer ({total} ausgeblendet)",
-        )
+        status = STATUS_OK
+        message = (summary or _count_text(relevant)) + hidden_text
     else:
-        notices = list(dict.fromkeys(analysis.get("notices") or []))
-        status, message = (
-            STATUS_EMPTY,
-            "; ".join(notices) if notices else "Keine Vertretungen geplant",
-        )
+        status = STATUS_EMPTY
+        if summary:
+            message = summary + hidden_text
+        else:
+            notices = list(dict.fromkeys(analysis.get("notices") or []))
+            message = ("; ".join(notices) if notices else "Keine Vertretungen geplant") + hidden_text
     return {
         "status": status,
         "message": message,
         "checked": datetime.now(),
         "http_status": http_status,
         "days": analysis.get("days", 0),
+        "day_summary": days,
         "tables": analysis.get("tables", 0),
         "rows": analysis.get("rows", 0),
         "rows_skipped": analysis.get("rows_skipped", 0),
@@ -551,7 +589,14 @@ class ElternPortalAPIExt(ElternPortalAPI):
                 s for s in self._student.substitutions if is_relevant(s, excluded)
             ]
         self._student.substitution_status = substitution_status(
-            http_status, analysis, total, len(self._student.substitutions)
+            http_status,
+            analysis,
+            total,
+            len(self._student.substitutions),
+            relevant_dates=[
+                s.date if isinstance(s.date, date) else date.fromisoformat(str(s.date)[:10])
+                for s in self._student.substitutions
+            ],
         )
         if self._student.substitution_status["status"] in ("warning", "error"):
             LOGGER.warning(
