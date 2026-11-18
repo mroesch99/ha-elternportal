@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 import html as html_lib
 import re
 from typing import Any
@@ -17,7 +17,16 @@ from pyelternportal.const import SCHOOL_SUBJECTS
 from pyelternportal.lesson import Lesson
 from pyelternportal.substitution import Substitution
 
-from .const import LOGGER
+from .const import (
+    LOGGER,
+    STATUS_EMPTY,
+    STATUS_ERROR,
+    STATUS_OK,
+    STATUS_WARNING,
+)
+
+SUBSTITUTION_URL_PATH: str = "/service/vertretungsplan"
+_RE_DATE = re.compile(r"\d{2}\.\d{2}\.\d{4}")
 
 TEACHER_URL_PATH: str = "/service/schulinformationen"
 
@@ -243,6 +252,98 @@ def resolve_lesson(
     )
 
 
+def analyze_substitution_html(html: str, parser: str = "html5lib") -> dict[str, Any]:
+    """Check if the substitution page was recognized (independent of the parser).
+
+    Returns counts of date headings, tables, rows and rows the parser skips
+    (cell count differs from the header), plus an error text if the page is
+    not the substitution plan at all (e.g. login page, changed layout).
+    """
+    soup = bs4.BeautifulSoup(html, parser)
+    result: dict[str, Any] = {
+        "page_recognized": False,
+        "days": 0,
+        "tables": 0,
+        "rows": 0,
+        "rows_skipped": 0,
+        "tables_without_header": 0,
+    }
+    main = soup.select_one("#asam_content .main_center")
+    if main is None:
+        return result
+    result["page_recognized"] = True
+    for tag in main.find_all(recursive=False):
+        if tag.name == "div" and "list" in tag.get("class", []):
+            if _RE_DATE.search(tag.get_text()):
+                result["days"] += 1
+        elif tag.name == "table":
+            result["tables"] += 1
+            head = tag.select_one("tr.vp_plan_head")
+            columns = len(head.find_all("td")) if head else 0
+            if not columns:
+                result["tables_without_header"] += 1
+                continue
+            for row in tag.select("tbody tr:not(.vp_plan_head)"):
+                cells = row.find_all("td")
+                if not cells:
+                    continue
+                if len(cells) == columns:
+                    result["rows"] += 1
+                else:
+                    result["rows_skipped"] += 1
+    return result
+
+
+def substitution_status(
+    http_status: int | None,
+    analysis: dict[str, Any] | None,
+    total: int,
+    relevant: int,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Status of the substitution plan: ok, empty, warning or error."""
+    analysis = analysis or {}
+    if error is not None:
+        status, message = STATUS_ERROR, f"Abruf fehlgeschlagen: {error}"
+    elif http_status != 200:
+        status, message = STATUS_ERROR, f"HTTP-Status {http_status}"
+    elif not analysis.get("page_recognized"):
+        status, message = (
+            STATUS_ERROR,
+            "Vertretungsplan-Seite nicht erkannt (Login oder Layout geändert?)",
+        )
+    elif analysis.get("rows_skipped") or analysis.get("tables_without_header"):
+        status, message = (
+            STATUS_WARNING,
+            f"{analysis.get('rows_skipped', 0)} Zeilen und "
+            f"{analysis.get('tables_without_header', 0)} Tabellen nicht gelesen",
+        )
+    elif relevant > 0:
+        status, message = (
+            STATUS_OK,
+            f"{relevant} Vertretung" + ("" if relevant == 1 else "en"),
+        )
+    elif total > 0:
+        status, message = (
+            STATUS_EMPTY,
+            f"Keine Vertretungen für die gewählten Fächer ({total} ausgeblendet)",
+        )
+    else:
+        status, message = STATUS_EMPTY, "Keine Vertretungen geplant"
+    return {
+        "status": status,
+        "message": message,
+        "checked": datetime.now(),
+        "http_status": http_status,
+        "days": analysis.get("days", 0),
+        "tables": analysis.get("tables", 0),
+        "rows": analysis.get("rows", 0),
+        "rows_skipped": analysis.get("rows_skipped", 0),
+        "entries_total": total,
+        "entries_relevant": relevant,
+    }
+
+
 def is_relevant(substitution: Substitution, excluded: list[str]) -> bool:
     """False if all subjects of a substitution are deselected alternatives."""
     if not excluded:
@@ -373,10 +474,38 @@ class ElternPortalAPIExt(ElternPortalAPI):
         ]
 
     async def async_substitution_online(self) -> None:
-        """Substitution plan with resolved subject and optional teacher names."""
+        """Substitution plan with names, subject filter and a status."""
         if self.substitution_teacher_names and not self._teachers_loaded:
             await self.async_teacher_online()
-        await super().async_substitution_online()
+
+        http_status: int | None = None
+        analysis: dict[str, Any] | None = None
+        try:
+            url = parse.urljoin(self.base_url, SUBSTITUTION_URL_PATH)
+            LOGGER.debug("substitution.url=%s", url)
+            async with self._session.get(url) as response:
+                http_status = response.status
+                html = await response.text()
+            analysis = analyze_substitution_html(html, self._beautiful_soup_parser)
+            LOGGER.debug(
+                "substitution.student=%s status=%s analysis=%s",
+                self._student.student_id,
+                http_status,
+                analysis,
+            )
+            await self.async_substitution_parse(html)
+        except Exception as ex:  # pylint: disable=broad-except
+            LOGGER.warning(
+                "Loading the substitution plan of %s failed: %s",
+                self._student.student_id,
+                ex,
+            )
+            self._student.substitutions = []
+            self._student.substitution_status = substitution_status(
+                http_status, analysis, 0, 0, error=str(ex) or type(ex).__name__
+            )
+            return
+
         resolve = self.substitution_teacher_names
         self._student.substitutions = [
             SubstitutionExt(
@@ -397,13 +526,18 @@ class ElternPortalAPIExt(ElternPortalAPI):
             )
             for s in self._student.substitutions
         ]
+        total = len(self._student.substitutions)
         excluded = self._choice().get("excluded", [])
         if excluded:
-            before = len(self._student.substitutions)
             self._student.substitutions = [
                 s for s in self._student.substitutions if is_relevant(s, excluded)
             ]
-            LOGGER.debug(
-                "substitution.filtered=%s",
-                before - len(self._student.substitutions),
+        self._student.substitution_status = substitution_status(
+            http_status, analysis, total, len(self._student.substitutions)
+        )
+        if self._student.substitution_status["status"] in ("warning", "error"):
+            LOGGER.warning(
+                "Substitution plan of %s: %s",
+                self._student.student_id,
+                self._student.substitution_status["message"],
             )

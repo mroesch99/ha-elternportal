@@ -141,5 +141,17 @@
         "description": "Der Stundenplan wurde dafür automatisch geladen. Kombinationen wie F/L oder K/Ev/Eth: Wähle pro Kind die belegten Fächer. Der Stundenplan zeigt dann nur dieses Fach samt Raum, und der Vertretungsplan blendet Vertretungen für die nicht gewählten Alternativen aus. Ohne Auswahl werden alle angezeigt. Sobald ein Fach gewählt ist, wird der Stundenplan dauerhaft aktiviert und bei jedem Update synchronisiert."
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "substitution_status": {
+        "state": {
+          "ok": "Vertretungen vorhanden",
+          "empty": "Keine Vertretungen",
+          "warning": "Unvollständig gelesen",
+          "error": "Fehler beim Abruf"
+        }
+      }
+    }
   }
 }

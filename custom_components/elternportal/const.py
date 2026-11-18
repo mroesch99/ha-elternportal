@@ -57,3 +57,15 @@ SENSOR_POLL: str = "poll"
 SENSOR_REGISTER: str = "register"
 SENSOR_SICKNOTE: str = "sicknote"
 SENSOR_SUBSTITUTION: str = "substitution"
+SENSOR_SUBSTITUTION_STATUS: str = "substitution_status"
+
+STATUS_OK: str = "ok"
+STATUS_EMPTY: str = "empty"
+STATUS_WARNING: str = "warning"
+STATUS_ERROR: str = "error"
+SUBSTITUTION_STATUS_OPTIONS: list[str] = [
+    STATUS_OK,
+    STATUS_EMPTY,
+    STATUS_WARNING,
+    STATUS_ERROR,
+]

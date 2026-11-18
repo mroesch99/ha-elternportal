@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
 )
@@ -31,6 +32,8 @@ from .const import (
     SENSOR_REGISTER,
     SENSOR_SICKNOTE,
     SENSOR_SUBSTITUTION,
+    SENSOR_SUBSTITUTION_STATUS,
+    SUBSTITUTION_STATUS_OPTIONS,
 )
 from .coordinator import ElternPortalCoordinator
 
@@ -61,6 +64,10 @@ async def async_setup_entry(
                 entities.append(
                     ElternPortalSensor(coordinator, entry, student, sensor_key)
                 )
+                if sensor_key == SENSOR_SUBSTITUTION:
+                    entities.append(
+                        ElternPortalSubstitutionStatusSensor(coordinator, entry, student)
+                    )
     async_add_entities(entities, update_before_add=True)
     LOGGER.debug("Setup elternportal sensor platform ended")
 
@@ -176,3 +183,71 @@ class ElternPortalSensor(CoordinatorEntity[ElternPortalCoordinator], SensorEntit
             if student.student_id == self.student_id:
                 return True
         return False
+
+
+class ElternPortalSubstitutionStatusSensor(
+    CoordinatorEntity[ElternPortalCoordinator], SensorEntity
+):
+    """Status of the substitution plan: ok, empty, warning or error."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = SUBSTITUTION_STATUS_OPTIONS
+    _attr_translation_key = SENSOR_SUBSTITUTION_STATUS
+    _attr_icon = "mdi:list-status"
+
+    def __init__(
+        self,
+        coordinator: ElternPortalCoordinator,
+        entry: ConfigEntry,
+        student: Student,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self.api: ElternPortalAPI = coordinator.api
+        self.student_id: str = student.student_id
+        self.entity_id = (
+            f"{Platform.SENSOR}.{DOMAIN}_{SENSOR_SUBSTITUTION_STATUS}_{student.student_id}"
+        )
+        self._attr_unique_id = (
+            f"{entry.unique_id}_{SENSOR_SUBSTITUTION_STATUS}_{student.student_id}"
+        )
+        self._attr_name = f"{student.firstname} Substitution Status"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id, student.student_id)},
+            manufacturer=self.api.school_name,
+            model=student.firstname,
+            entry_type=DeviceEntryType.SERVICE,
+        )
+        self._attr_attribution = ATTRIBUTION
+
+    def _status(self) -> dict[str, Any] | None:
+        for student in self.api.students:
+            if student.student_id == self.student_id:
+                return getattr(student, "substitution_status", None)
+        return None
+
+    @property
+    def native_value(self) -> str | None:
+        """ok, empty, warning or error (None before the first fetch)."""
+        if not self.coordinator.last_update_success:
+            return "error"
+        status = self._status()
+        return status.get("status") if status else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = dict(self._status() or {})
+        data.pop("status", None)
+        if not self.coordinator.last_update_success:
+            data["message"] = (
+                f"Update fehlgeschlagen: {self.coordinator.last_exception}"
+                " (angezeigt werden die Daten des letzten erfolgreichen Abrufs)"
+            )
+        data["last_update"] = self.api.last_update
+        return data
+
+    @property
+    def available(self) -> bool:
+        """Available as long as the student is known."""
+        return any(s.student_id == self.student_id for s in self.api.students)

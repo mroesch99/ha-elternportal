@@ -141,5 +141,17 @@
         "description": "The timetable was loaded automatically for this step. Combinations like F/L or K/Ev/Eth: select the subjects each child takes. The timetable then shows only this subject and its room, and the substitution plan hides substitutions of the other alternatives. Without a selection everything is shown. As soon as a subject is chosen, the timetable section is enabled permanently and synced on every update."
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "substitution_status": {
+        "state": {
+          "ok": "Substitutions found",
+          "empty": "No substitutions",
+          "warning": "Partially read",
+          "error": "Fetch failed"
+        }
+      }
+    }
   }
 }
